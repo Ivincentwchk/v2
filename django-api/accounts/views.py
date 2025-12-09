@@ -4,8 +4,6 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from accounts.models import User, UserActivity
 from accounts.serializers import UserSerializer
 from datetime import date, timedelta
-from django.utils import timezone
-from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes
 
@@ -15,6 +13,26 @@ from rest_framework.decorators import api_view, permission_classes
 def me(request):
     serializer = UserSerializer(request.user)
     return Response(serializer.data)
+
+
+@api_view(['GET'])
+def check_availability(request):
+    user_name = request.query_params.get('user_name')
+    email = request.query_params.get('email')
+
+    if not user_name and not email:
+        return Response(
+            {"detail": "Provide at least one of user_name or email query params."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    data = {}
+    if user_name:
+        data['user_name_available'] = not User.objects.filter(user_name=user_name).exists()
+    if email:
+        data['email_available'] = not User.objects.filter(email=email).exists()
+
+    return Response(data)
 
 
 class RegisterView(generics.CreateAPIView):
