@@ -395,3 +395,141 @@ Returns the question and its options, but **does not** expose which option is co
   { "detail": "Question not found." }
   ```
 
+---
+
+## 12. Verify Option Answer – `GET /options/<option_id>/verify/`
+
+Check whether a specific option is correct.
+
+- **URL pattern:**
+
+  ```
+  GET /options/<option_id>/verify/
+  ```
+
+  Example:
+
+  ```
+  GET http://localhost:8000/api/accounts/options/10/verify/
+  ```
+
+- **Auth:** Not required.
+
+- **Response (200):**
+
+  ```json
+  { "correct": true }
+  ```
+
+  or
+
+  ```json
+  { "correct": false }
+  ```
+
+- **Error (404) if option does not exist:**
+
+  ```json
+  { "detail": "Option not found." }
+  ```
+
+---
+
+## 13. Mark Course Completed – `POST /courses/<course_id>/complete/`
+
+Mark a course as completed for the current authenticated user and update their score for that course if the new score is higher.
+
+- **URL pattern:**
+
+  ```
+  POST /courses/<course_id>/complete/
+  ```
+
+  Example:
+
+  ```
+  POST http://localhost:8000/api/accounts/courses/1/complete/
+  ```
+
+- **Auth:** Required (JWT access token).
+
+  ```http
+  Authorization: Bearer <access_token>
+  ```
+
+- **Body (JSON):**
+
+  ```json
+  {
+    "score": 95
+  }
+  ```
+
+- **Behavior:**
+  - Ensures the course exists.
+  - Uses/creates a `UserCourse` record for `(current user, course)`.
+  - Sets `CourseFlag` to `"completed"`.
+  - Updates `CourseScore` only if the new score is higher than the existing stored score.
+
+- **Response (200):**
+
+  ```json
+  {
+    "CourseID": 1,
+    "CourseFlag": "completed",
+    "CourseScore": "95"
+  }
+  ```
+
+- **Errors:**
+  - Missing score:
+
+    ```json
+    { "detail": "score is required." }
+    ```
+
+  - Non-integer score:
+
+    ```json
+    { "detail": "score must be an integer." }
+    ```
+
+  - Course not found:
+
+    ```json
+    { "detail": "Course not found." }
+    ```
+
+---
+
+## 14. Get Completed Courses – `GET /courses/completed/`
+
+Return the list of course IDs that the current authenticated user has completed (based on `UserCourse` records where `CourseFlag` is `"completed"`).
+
+- **URL:**
+
+  ```
+  GET /courses/completed/
+  ```
+
+  Example:
+
+  ```
+  GET http://localhost:8000/api/accounts/courses/completed/
+  ```
+
+- **Auth:** Required (JWT access token).
+
+  ```http
+  Authorization: Bearer <access_token>
+  ```
+
+- **Response (200):**
+
+  ```json
+  [1, 3, 5]
+  ```
+
+  This means the current user has completed courses with IDs 1, 3, and 5.
+
+

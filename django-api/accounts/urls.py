@@ -9,6 +9,9 @@ from accounts.views import (
     list_subjects,
     getQuestionListByCourseID,
     getQuestionByQuestionID,
+    verifyAnsByOptionID,
+    markCourseCompletedByCourseID,
+    getCompletedCourse,
 )
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -23,4 +26,7 @@ urlpatterns = [
     path('courses/<int:course_id>/', getCourseByCourseID, name='course_detail'),
     path('questions/course/<int:course_id>/', getQuestionListByCourseID, name='questions_by_course'),
     path('questions/<int:question_id>/', getQuestionByQuestionID, name='question_detail'),
+    path('options/<int:option_id>/verify/', verifyAnsByOptionID, name='verify_option'),
+    path('courses/<int:course_id>/complete/', markCourseCompletedByCourseID, name='complete_course'),
+    path('courses/completed/', getCompletedCourse, name='completed_courses'),
 ]
