@@ -1,90 +1,106 @@
-# CSCI3100 Backend (v2)
+# CSCI3100 Project Backend (Docker + pgAdmin)
 
-This project is a Dockerized Django REST API backed by PostgreSQL.
+This backend ships with a Docker Compose stack that provisions:
+
+1. **PostgreSQL** database (`csci3100_db_server`)
+2. **Django API** service (`api`)
+3. **pgAdmin 4** GUI (`gui`) for convenient database inspection
+
+The instructions below explain how to launch the stack, run the server, and connect through pgAdmin.
 
 ---
 
-## Database Initialization with SQL Files
+## 1. Prerequisites
 
-The repository contains SQL scripts under the `sqls/` folder for initializing the database with subjects, courses, and other data.
+- Docker Desktop (or Docker Engine) and Docker Compose v2
+- Copy the example environment file and adjust it for your machine:
 
-These scripts are **not** run automatically by Docker. Each developer must run them manually when setting up their local database.
+```bash
+cp .env.example .env
+```
 
-### 1. Start the Docker stack
+Ensure the following values are set:
 
-From the project root (`v2`):
+| Variable | Description |
+| --- | --- |
+| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | Database name and credentials used by both PostgreSQL and Django |
+| `DJANGO_SECRET_KEY`, `DJANGO_DEBUG` | Usual Django settings |
+| `DATABASE_URL_FORMATTED` | Connection string Django uses to reach Postgres (`postgresql://user:pass@csci3100_db_server:5432/db`) |
+| `PGADMIN_DEFAULT_EMAIL`, `PGADMIN_DEFAULT_PASSWORD` | Login for pgAdmin GUI |
+
+---
+
+## 2. Starting the services
+
+From the repo root (`CSCI3100_project_backend_v2`), run:
 
 ```bash
 docker compose up --build
 ```
 
-Wait until:
-- The Postgres container (`csci3100_db_server`) is running.
-- The Django API and pgAdmin (if used) are up.
+What happens:
 
-### 2. Connect to PostgreSQL
+- PostgreSQL starts first and exposes port **5432**
+- Once Postgres is healthy, the Django `api` container runs `python manage.py migrate` and then starts the dev server on **http://localhost:8000**
+- pgAdmin becomes available on **http://localhost:8080**
+- Database files persist inside the named volume `postgres_data_v2`
 
-Use either **pgAdmin** or `psql`.
-
-#### Option A: Using pgAdmin (GUI)
-
-1. Open pgAdmin in your browser:
-   - `http://localhost:8080/`
-2. Log in using the credentials from `.env`:
-   - `PGADMIN_DEFAULT_EMAIL`
-   - `PGADMIN_DEFAULT_PASSWORD`
-3. Register a new server pointing to the Postgres service:
-   - Host: `csci3100_db_server` (or `localhost` with forwarded port `5432`)
-   - Port: `5432`
-   - Username: `POSTGRES_USER` from `.env`
-   - Password: `POSTGRES_PASSWORD` from `.env`
-4. Open the Query Tool and run the SQL files from the `sqls/` directory (copy & paste or use the file open dialog):
-   - `sqls/subject_course.sql`
-   - `sqls/git.sql`
-   - `sqls/docker.sql`
-
-#### Option B: Using psql (CLI)
-
-If you have `psql` installed locally, you can connect directly to the Dockerized database. From the host machine:
+Need to run the containers in the background? Append `-d`:
 
 ```bash
-psql "host=localhost port=5432 dbname=$POSTGRES_DB user=$POSTGRES_USER password=$POSTGRES_PASSWORD"
+docker compose up --build -d
 ```
 
-Then inside `psql`, execute the SQL files (adjust the path if needed):
-
-```sql
-\i sqls/subject_course.sql;
-\i sqls/git.sql;
-\i sqls/docker.sql;
-```
-
-Alternatively, you can run `psql` inside the Postgres container, for example:
+To stop everything and remove containers (but keep the volume):
 
 ```bash
-docker compose exec csci3100_db_server psql -U $POSTGRES_USER -d $POSTGRES_DB -f /docker-entrypoint-initdb.d/subject_course.sql
+docker compose down
 ```
-
-(repeat for `git.sql` and `docker.sql` as needed, or copy them somewhere inside the container.)
-
-### 3. Verifying the data
-
-After running the scripts, verify that the data is present, for example:
-
-```sql
-SELECT * FROM accounts_subject;
-SELECT * FROM accounts_course;
-```
-
-You should see rows corresponding to the test data defined in the SQL files.
 
 ---
 
-## Notes
+## 3. Interacting with the Django API
 
-- Running the SQL scripts multiple times may cause primary key or duplicate-data errors. For a clean re-init:
-  1. Stop containers: `docker compose down`
-  2. Remove the Postgres volume (this **deletes all DB data**): `docker volume rm v2_postgres_data_v2`
-  3. Start again: `docker compose up --build`
-  4. Re-run the SQL scripts as described above.
-- API usage and endpoints are documented in `django-api/API_USAGE.md`.
+- API base URL: **http://localhost:8000**
+- The container automatically applies migrations on boot. To run extra management commands:
+
+```bash
+docker compose exec api python manage.py createsuperuser
+docker compose exec api python manage.py shell
+```
+
+Logs for each service:
+
+```bash
+docker compose logs -f api          # Django
+docker compose logs -f csci3100_db_server
+docker compose logs -f gui          # pgAdmin
+```
+
+---
+
+## 4. Using pgAdmin (web UI for PostgreSQL)
+
+1. Navigate to **http://localhost:8080**
+2. Sign in with the credentials defined in `.env` (`PGADMIN_DEFAULT_EMAIL` / `PGADMIN_DEFAULT_PASSWORD`)
+3. Add a new server:
+   - **Name:** anything (e.g., `Local CS3100`)
+   - **Connection Tab:**
+     - Host name/address: `csci3100_db_server` (container name resolves within Docker network)
+     - Port: `5432`
+     - Maintenance DB: value from `POSTGRES_DB`
+     - Username: value from `POSTGRES_USER`
+     - Password: value from `POSTGRES_PASSWORD`
+4. Save to connect. You can now browse schemas, run SQL queries, inspect tables, etc.
+
+> ℹ️ If you prefer connecting from a local client (psql, DBeaver, etc.), use `localhost:5432` with the same credentials because Postgres is published to the host.
+
+---
+
+## 5. Troubleshooting
+
+- **Environment mismatch:** Ensure `.env` and `.env.example` stay in sync. If Postgres refuses connections, double-check `POSTGRES_DB` vs `DATABASE_URL_FORMATTED`.
+- **Stale volumes:** To reset the Postgres data volume, run `docker compose down -v` (this erases all data).
+- **Mac/Windows port conflicts:** Make sure ports 5432 (Postgres), 8000 (Django), and 8080 (pgAdmin) are unused before starting the stack.
+
+With this setup, any teammate can clone the repo, copy `.env.example`, and run `docker compose up --build` to get the API and pgAdmin running within minutes.
