@@ -72,3 +72,33 @@ class UserActivity(models.Model):
 
     def __str__(self):
         return f"{self.user.user_name} - {self.activity_type} at {self.timestamp}"
+
+
+class Subject(models.Model):
+    SubjectID = models.AutoField(primary_key=True)
+    SubjectName = models.CharField(max_length=255)
+    SubjectDescription = models.TextField()
+
+    def __str__(self):
+        return self.SubjectName
+
+
+class Course(models.Model):
+    CourseID = models.AutoField(primary_key=True)
+    SubjectID = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name='courses')
+    CourseTitle = models.CharField(max_length=255)
+    CourseDescription = models.TextField()
+    CourseDifficulty = models.IntegerField()
+
+    def __str__(self):
+        return self.CourseTitle
+
+
+class UserCourse(models.Model):
+    CourseID = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='user_courses')
+    UserID = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_courses')
+    CourseScore = models.CharField(max_length=255)
+    CourseFlag = models.CharField(max_length=255)
+
+    def __str__(self):
+        return f"{self.UserID.user_name} - {self.CourseID.CourseTitle}"

@@ -1,8 +1,8 @@
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
-from accounts.models import User, UserActivity
-from accounts.serializers import UserSerializer
+from accounts.models import User, UserActivity, Course, Subject
+from accounts.serializers import UserSerializer, CourseSerializer, SubjectSerializer
 from datetime import date, timedelta
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes
@@ -94,3 +94,35 @@ class LoginView(generics.GenericAPIView):
             profile.login_streak_days = 1
         profile.last_login_date = today
         profile.save()
+
+
+@api_view(['GET'])
+def getCourseListBySubjectID(request, subject_id):
+    courses = Course.objects.filter(SubjectID_id=subject_id).only('CourseID', 'CourseTitle')
+    serializer = CourseSerializer(courses, many=True)
+    # Only return ID and name as requested
+    data = [
+        {
+            'CourseID': item['CourseID'],
+            'CourseTitle': item['CourseTitle'],
+        }
+        for item in serializer.data
+    ]
+    return Response(data)
+
+
+@api_view(['GET'])
+def getCourseByCourseID(request, course_id):
+    try:
+        course = Course.objects.get(pk=course_id)
+    except Course.DoesNotExist:
+        return Response({'detail': 'Course not found.'}, status=status.HTTP_404_NOT_FOUND)
+    serializer = CourseSerializer(course)
+    return Response(serializer.data)
+
+
+@api_view(['GET'])
+def list_subjects(request):
+    subjects = Subject.objects.all()
+    serializer = SubjectSerializer(subjects, many=True)
+    return Response(serializer.data)

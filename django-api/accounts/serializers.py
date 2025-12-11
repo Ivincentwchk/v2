@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from accounts.models import User, UserProfile, UserActivity
+from accounts.models import User, UserProfile, UserActivity, Subject, Course, UserCourse
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
@@ -30,3 +30,21 @@ class UserActivitySerializer(serializers.ModelSerializer):
     class Meta:
         model = UserActivity
         fields = ['activity_type', 'timestamp', 'details']
+
+
+class SubjectSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Subject
+        fields = ['SubjectID', 'SubjectName', 'SubjectDescription']
+
+
+class CourseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Course
+        fields = ['CourseID', 'SubjectID', 'CourseTitle', 'CourseDescription', 'CourseDifficulty']
+
+
+class UserCourseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserCourse
+        fields = ['CourseID', 'UserID', 'CourseScore', 'CourseFlag']
