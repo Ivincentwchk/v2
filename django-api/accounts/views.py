@@ -1,8 +1,14 @@
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
-from accounts.models import User, UserActivity, Course, Subject
-from accounts.serializers import UserSerializer, CourseSerializer, SubjectSerializer
+from accounts.models import User, UserActivity, Course, Subject, Question, Option
+from accounts.serializers import (
+    UserSerializer,
+    CourseSerializer,
+    SubjectSerializer,
+    QuestionSerializer,
+    QuestionDetailSerializer,
+)
 from datetime import date, timedelta
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes
@@ -125,4 +131,24 @@ def getCourseByCourseID(request, course_id):
 def list_subjects(request):
     subjects = Subject.objects.all()
     serializer = SubjectSerializer(subjects, many=True)
+    return Response(serializer.data)
+
+
+@api_view(['GET'])
+def getQuestionListByCourseID(request, course_id):
+    questions = Question.objects.filter(CourseID_id=course_id).only('QuestionID')
+    serializer = QuestionSerializer(questions, many=True)
+    # Only return question IDs as requested
+    data = [item['QuestionID'] for item in serializer.data]
+    return Response(data)
+
+
+@api_view(['GET'])
+def getQuestionByQuestionID(request, question_id):
+    try:
+        question = Question.objects.get(pk=question_id)
+    except Question.DoesNotExist:
+        return Response({'detail': 'Question not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    serializer = QuestionDetailSerializer(question)
     return Response(serializer.data)

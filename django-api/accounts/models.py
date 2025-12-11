@@ -102,3 +102,22 @@ class UserCourse(models.Model):
 
     def __str__(self):
         return f"{self.UserID.user_name} - {self.CourseID.CourseTitle}"
+
+
+class Question(models.Model):
+    QuestionID = models.AutoField(primary_key=True)
+    CourseID = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='questions')
+    QuestionDescription = models.TextField()
+
+    def __str__(self):
+        return f"Question {self.QuestionID} for {self.CourseID.CourseTitle}"
+
+
+class Option(models.Model):
+    OptionID = models.AutoField(primary_key=True)
+    QuestionID = models.ForeignKey(Question, on_delete=models.CASCADE, related_name='options')
+    OptionText = models.TextField()
+    CorrectOption = models.BooleanField()
+
+    def __str__(self):
+        return f"Option {self.OptionID} for Question {self.QuestionID_id}"

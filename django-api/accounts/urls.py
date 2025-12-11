@@ -1,5 +1,15 @@
 from django.urls import path
-from accounts.views import RegisterView, LoginView, me, check_availability, getCourseListBySubjectID, getCourseByCourseID, list_subjects
+from accounts.views import (
+    RegisterView,
+    LoginView,
+    me,
+    check_availability,
+    getCourseListBySubjectID,
+    getCourseByCourseID,
+    list_subjects,
+    getQuestionListByCourseID,
+    getQuestionByQuestionID,
+)
 from rest_framework_simplejwt.views import TokenRefreshView
 
 urlpatterns = [
@@ -11,4 +21,6 @@ urlpatterns = [
     path('subjects/', list_subjects, name='subjects_list'),
     path('courses/subject/<int:subject_id>/', getCourseListBySubjectID, name='courses_by_subject'),
     path('courses/<int:course_id>/', getCourseByCourseID, name='course_detail'),
+    path('questions/course/<int:course_id>/', getQuestionListByCourseID, name='questions_by_course'),
+    path('questions/<int:question_id>/', getQuestionByQuestionID, name='question_detail'),
 ]

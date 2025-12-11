@@ -314,3 +314,84 @@ or
   ```
 
 The frontend should handle both success and error responses appropriately.
+
+---
+
+## 10. List Questions by Course – `GET /questions/course/<course_id>/`
+
+Returns a list of question IDs that belong to a given course.
+
+- **URL pattern:**
+
+  ```
+  GET /questions/course/<course_id>/
+  ```
+
+  Example:
+
+  ```
+  GET http://localhost:8000/api/accounts/questions/course/1/
+  ```
+
+- **Response (200):**
+
+  ```json
+  [1, 2, 3]
+  ```
+
+  This means questions with IDs 1, 2 and 3 all belong to course with ID 1.
+
+---
+
+## 11. Get Question Detail – `GET /questions/<question_id>/`
+
+Returns the question and its options, but **does not** expose which option is correct.
+
+- **URL pattern:**
+
+  ```
+  GET /questions/<question_id>/
+  ```
+
+  Example:
+
+  ```
+  GET http://localhost:8000/api/accounts/questions/1/
+  ```
+
+- **Response (200):**
+
+  ```json
+  {
+    "QuestionID": 1,
+    "CourseID": 2,
+    "QuestionDescription": "What does Git do?",
+    "options": [
+      {
+        "OptionID": 10,
+        "OptionText": "Version control system"
+      },
+      {
+        "OptionID": 11,
+        "OptionText": "Text editor"
+      },
+      {
+        "OptionID": 12,
+        "OptionText": "Operating system"
+      },
+      {
+        "OptionID": 13,
+        "OptionText": "Web browser"
+      }
+    ]
+  }
+  ```
+
+  Note: the backend does **not** include `CorrectOption` in this response so the frontend cannot see which answer is correct.
+
+- **Error (404) if question does not exist:**
+
+  ```json
+  { "detail": "Question not found." }
+  ```
+
