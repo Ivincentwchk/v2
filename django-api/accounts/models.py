@@ -72,3 +72,14 @@ class UserActivity(models.Model):
 
     def __str__(self):
         return f"{self.user.user_name} - {self.activity_type} at {self.timestamp}"
+
+
+class PasswordResetToken(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='password_reset_tokens')
+    token = models.CharField(max_length=128, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"Reset token for {self.user.user_name} (used={self.used})"

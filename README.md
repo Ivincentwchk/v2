@@ -102,5 +102,39 @@ docker compose logs -f gui          # pgAdmin
 - **Environment mismatch:** Ensure `.env` and `.env.example` stay in sync. If Postgres refuses connections, double-check `POSTGRES_DB` vs `DATABASE_URL_FORMATTED`.
 - **Stale volumes:** To reset the Postgres data volume, run `docker compose down -v` (this erases all data).
 - **Mac/Windows port conflicts:** Make sure ports 5432 (Postgres), 8000 (Django), and 8080 (pgAdmin) are unused before starting the stack.
+- **Email gateway errors:** When using Gmail, you must create an App Password and paste it into `EMAIL_HOST_PASSWORD`. Regular Gmail passwords are blocked.
+
+---
+
+## 6. Email (Gmail SMTP) setup
+
+1. Create a Gmail App Password (Google Account → Security → App passwords → select “Mail” + “Other”).
+2. Update `.env` with:
+   ```
+   EMAIL_HOST=smtp.gmail.com
+   EMAIL_PORT=587
+   EMAIL_USE_TLS=True
+   EMAIL_HOST_USER=your-gmail@gmail.com
+   EMAIL_HOST_PASSWORD=the-app-password
+   DEFAULT_FROM_EMAIL="CSCI3100 Team <your-gmail@gmail.com>"
+   ```
+3. Restart the stack (`docker compose up --build`) so Django picks up the new credentials.
+
+These settings enable future features such as “forgot password” emails or license notifications.
+
+### Password reset test endpoint
+
+You can trigger the mock reset flow via the new API route:
+
+```bash
+curl -X POST http://localhost:8000/api/accounts/password-reset/ \
+  -H "Content-Type: application/json" \
+  -d '{
+        "email": "user@example.com",
+        "reset_base_url": "https://your-frontend/reset-password"
+      }'
+```
+
+If the email exists in the database, the backend sends a mock reset link pointing at `reset_base_url` with a placeholder token.
 
 With this setup, any teammate can clone the repo, copy `.env.example`, and run `docker compose up --build` to get the API and pgAdmin running within minutes.
