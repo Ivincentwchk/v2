@@ -74,6 +74,7 @@ class UserActivity(models.Model):
         return f"{self.user.user_name} - {self.activity_type} at {self.timestamp}"
 
 
+<<<<<<< HEAD
 class Subject(models.Model):
     SubjectID = models.AutoField(primary_key=True)
     SubjectName = models.CharField(max_length=255)
@@ -121,3 +122,14 @@ class Option(models.Model):
 
     def __str__(self):
         return f"Option {self.OptionID} for Question {self.QuestionID_id}"
+=======
+class PasswordResetToken(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='password_reset_tokens')
+    token = models.CharField(max_length=128, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"Reset token for {self.user.user_name} (used={self.used})"
+>>>>>>> 2ff884d (add password reset via email token)
