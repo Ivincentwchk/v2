@@ -89,6 +89,7 @@ class Course(models.Model):
     CourseTitle = models.CharField(max_length=255)
     CourseDescription = models.TextField()
     CourseDifficulty = models.IntegerField()
+    Content = models.TextField(blank=True, default="")
 
     def __str__(self):
         return self.CourseTitle
