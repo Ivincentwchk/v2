@@ -3,9 +3,14 @@ from accounts.models import User, UserProfile, UserActivity, Subject, Course, Us
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
+    has_profile_pic = serializers.SerializerMethodField()
+
     class Meta:
         model = UserProfile
-        fields = ['score', 'rank', 'login_streak_days', 'last_login_date']
+        fields = ['score', 'rank', 'login_streak_days', 'last_login_date', 'has_profile_pic', 'profile_pic_mime']
+
+    def get_has_profile_pic(self, obj):
+        return bool(obj.profile_pic)
 
 
 class UserSerializer(serializers.ModelSerializer):

@@ -53,6 +53,8 @@ class UserProfile(models.Model):
     rank = models.IntegerField(default=99999)
     login_streak_days = models.IntegerField(default=0)
     last_login_date = models.DateField(null=True, blank=True)
+    profile_pic = models.BinaryField(null=True, blank=True)
+    profile_pic_mime = models.CharField(max_length=100, null=True, blank=True)
 
     def __str__(self):
         return f"{self.user.user_name}'s profile"
@@ -72,6 +74,34 @@ class UserActivity(models.Model):
 
     def __str__(self):
         return f"{self.user.user_name} - {self.activity_type} at {self.timestamp}"
+
+
+class Achievement(models.Model):
+    key = models.CharField(max_length=64, unique=True)
+    category = models.CharField(max_length=32)
+    title = models.CharField(max_length=120)
+    description = models.TextField()
+    icon = models.CharField(max_length=32)
+    target = models.IntegerField(default=0)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    def __str__(self):
+        return self.title
+
+
+class UserAchievement(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='achievements')
+    achievement = models.ForeignKey(Achievement, on_delete=models.CASCADE, related_name='user_achievements')
+    progress = models.IntegerField(default=0)
+    unlocked = models.BooleanField(default=False)
+    unlocked_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('user', 'achievement')
+
+    def __str__(self):
+        return f"{self.user.user_name} - {self.achievement.key}"
 
 
 class Subject(models.Model):
