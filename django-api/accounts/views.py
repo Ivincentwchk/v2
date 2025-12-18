@@ -9,9 +9,18 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
+from accounts.models import User, UserActivity, Course, Subject, Question, Option, UserCourse
+from accounts.serializers import (
+    UserSerializer,
+    CourseSerializer,
+    SubjectSerializer,
+    QuestionSerializer,
+    QuestionDetailSerializer,
+)
+from datetime import date, timedelta
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.decorators import api_view, permission_classes
 
-from accounts.models import PasswordResetToken, User, UserActivity
-from accounts.serializers import UserSerializer
 
 
 @api_view(['GET'])
@@ -102,6 +111,135 @@ class LoginView(generics.GenericAPIView):
         profile.save()
 
 
+@api_view(['GET'])
+def getCourseListBySubjectID(request, subject_id):
+    courses = Course.objects.filter(SubjectID_id=subject_id).only('CourseID', 'CourseTitle')
+    serializer = CourseSerializer(courses, many=True)
+    # Only return ID and name as requested
+    data = [
+        {
+            'CourseID': item['CourseID'],
+            'CourseTitle': item['CourseTitle'],
+        }
+        for item in serializer.data
+    ]
+    return Response(data)
+
+
+@api_view(['GET'])
+def getCourseByCourseID(request, course_id):
+    try:
+        course = Course.objects.get(pk=course_id)
+    except Course.DoesNotExist:
+        return Response({'detail': 'Course not found.'}, status=status.HTTP_404_NOT_FOUND)
+    serializer = CourseSerializer(course)
+    return Response(serializer.data)
+
+
+@api_view(['GET'])
+def list_subjects(request):
+    subjects = Subject.objects.all()
+    serializer = SubjectSerializer(subjects, many=True)
+    return Response(serializer.data)
+
+
+@api_view(['GET'])
+def getQuestionListByCourseID(request, course_id):
+    questions = Question.objects.filter(CourseID_id=course_id).only('QuestionID')
+    serializer = QuestionSerializer(questions, many=True)
+    # Only return question IDs as requested
+    data = [item['QuestionID'] for item in serializer.data]
+    return Response(data)
+
+
+@api_view(['GET'])
+def getQuestionByQuestionID(request, question_id):
+    try:
+        question = Question.objects.get(pk=question_id)
+    except Question.DoesNotExist:
+        return Response({'detail': 'Question not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    serializer = QuestionDetailSerializer(question)
+    return Response(serializer.data)
+
+
+@api_view(['GET'])
+def verifyAnsByOptionID(request, option_id):
+    """Return whether the given option is correct.
+
+    Response shape: { "correct": true/false }
+    """
+    try:
+        option = Option.objects.get(pk=option_id)
+    except Option.DoesNotExist:
+        return Response({'detail': 'Option not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    return Response({'correct': bool(option.CorrectOption)})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def markCourseCompletedByCourseID(request, course_id):
+    """Mark a course as completed for the current user and update score if higher.
+
+    Expects JSON body: { "score": <number> }
+    """
+    score = request.data.get('score')
+    if score is None:
+        return Response({'detail': 'score is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        new_score_int = int(score)
+    except (TypeError, ValueError):
+        return Response({'detail': 'score must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    user = request.user
+
+    # Ensure the course exists (optional but clearer error)
+    try:
+        course = Course.objects.get(pk=course_id)
+    except Course.DoesNotExist:
+        return Response({'detail': 'Course not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    user_course, created = UserCourse.objects.get_or_create(
+        CourseID=course,
+        UserID=user,
+        defaults={
+            'CourseScore': str(new_score_int),
+            'CourseFlag': 'completed',
+        },
+    )
+
+    if not created:
+        # Update score only if the new score is higher
+        try:
+            existing_score_int = int(user_course.CourseScore)
+        except (TypeError, ValueError):
+            existing_score_int = 0
+
+        if new_score_int > existing_score_int:
+            user_course.CourseScore = str(new_score_int)
+
+        user_course.CourseFlag = 'completed'
+        user_course.save()
+
+    return Response(
+        {
+            'CourseID': course.CourseID,
+            'CourseFlag': user_course.CourseFlag,
+            'CourseScore': user_course.CourseScore,
+        }
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def getCompletedCourse(request):
+    """Return list of course IDs where CourseFlag is 'completed' for current user."""
+    user = request.user
+    completed = UserCourse.objects.filter(UserID=user, CourseFlag='completed').values_list('CourseID_id', flat=True)
+    # Cast to list of integers for JSON response
+    return Response(list(completed))
 @api_view(['POST'])
 def send_test_email(request):
     recipient = request.data.get('to')

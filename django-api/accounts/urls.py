@@ -1,5 +1,21 @@
 from django.urls import path
-from accounts.views import RegisterView, LoginView, me, check_availability, send_test_email, request_password_reset, reset_password_confirm
+from accounts.views import (
+    RegisterView,
+    LoginView,
+    me,
+    check_availability,
+    getCourseListBySubjectID,
+    getCourseByCourseID,
+    list_subjects,
+    getQuestionListByCourseID,
+    getQuestionByQuestionID,
+    verifyAnsByOptionID,
+    markCourseCompletedByCourseID,
+    getCompletedCourse,
+    send_test_email, 
+    request_password_reset, 
+    reset_password_confirm
+)
 from rest_framework_simplejwt.views import TokenRefreshView
 
 urlpatterns = [
@@ -8,6 +24,14 @@ urlpatterns = [
     path('availability/', check_availability, name='availability'),
     path('me/', me, name='me'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('subjects/', list_subjects, name='subjects_list'),
+    path('courses/subject/<int:subject_id>/', getCourseListBySubjectID, name='courses_by_subject'),
+    path('courses/<int:course_id>/', getCourseByCourseID, name='course_detail'),
+    path('questions/course/<int:course_id>/', getQuestionListByCourseID, name='questions_by_course'),
+    path('questions/<int:question_id>/', getQuestionByQuestionID, name='question_detail'),
+    path('options/<int:option_id>/verify/', verifyAnsByOptionID, name='verify_option'),
+    path('courses/<int:course_id>/complete/', markCourseCompletedByCourseID, name='complete_course'),
+    path('courses/completed/', getCompletedCourse, name='completed_courses'),
     path('email/test/', send_test_email, name='send_test_email'),
     path('password-reset/', request_password_reset, name='password_reset'),
     path('password-reset/confirm/', reset_password_confirm, name='password_reset_confirm'),
