@@ -26,8 +26,25 @@ from rest_framework.decorators import api_view, permission_classes
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def me(request):
-    serializer = UserSerializer(request.user)
-    return Response(serializer.data)
+    user = request.user
+    serializer = UserSerializer(user)
+
+    completed = UserCourse.objects.filter(UserID=user, CourseFlag='completed').only('CourseID_id', 'CourseScore')
+
+    total_score = 0
+    completed_course_scores = []
+    for item in completed:
+        try:
+            score_int = int(item.CourseScore)
+        except (TypeError, ValueError):
+            score_int = 0
+        total_score += score_int
+        completed_course_scores.append({'CourseID': item.CourseID_id, 'CourseScore': score_int})
+
+    data = serializer.data
+    data['total_score'] = total_score
+    data['completed_course_scores'] = completed_course_scores
+    return Response(data)
 
 
 @api_view(['GET'])
@@ -179,6 +196,154 @@ def verifyAnsByOptionID(request, option_id):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+def submitCourseAnswers(request, course_id):
+    """Submit a full course attempt in one request.
+
+    Expects JSON body:
+      { "answers": [ {"question_id": <int>, "option_id": <int>}, ... ] }
+
+    Rules:
+    - Must answer all questions in the course.
+    - Backend validates question belongs to course and option belongs to question.
+    - Records highest score for the user/course (can retry).
+    """
+
+    try:
+        course = Course.objects.get(pk=course_id)
+    except Course.DoesNotExist:
+        return Response({'detail': 'Course not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    answers = request.data.get('answers')
+    if not isinstance(answers, list):
+        return Response({'detail': 'answers must be a list.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    course_questions = list(Question.objects.filter(CourseID_id=course_id).only('QuestionID'))
+    course_question_ids = {q.QuestionID for q in course_questions}
+
+    if not course_question_ids:
+        return Response({'detail': 'Course has no questions.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    normalized_answers = {}
+    invalid_items = []
+
+    for idx, item in enumerate(answers):
+        if not isinstance(item, dict):
+            invalid_items.append({'index': idx, 'detail': 'Each answer must be an object.'})
+            continue
+
+        question_id = item.get('question_id')
+        option_id = item.get('option_id')
+
+        try:
+            question_id_int = int(question_id)
+            option_id_int = int(option_id)
+        except (TypeError, ValueError):
+            invalid_items.append({'index': idx, 'detail': 'question_id and option_id must be integers.'})
+            continue
+
+        # Keep the latest answer if duplicated.
+        normalized_answers[question_id_int] = option_id_int
+
+    if invalid_items:
+        return Response({'detail': 'Invalid answers payload.', 'errors': invalid_items}, status=status.HTTP_400_BAD_REQUEST)
+
+    submitted_question_ids = set(normalized_answers.keys())
+    extra_question_ids = sorted(list(submitted_question_ids - course_question_ids))
+    if extra_question_ids:
+        return Response(
+            {'detail': 'Some submitted questions are not part of this course.', 'extra_question_ids': extra_question_ids},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    missing_question_ids = sorted(list(course_question_ids - submitted_question_ids))
+    if missing_question_ids:
+        return Response(
+            {'detail': 'You must answer all questions before submitting.', 'missing_question_ids': missing_question_ids},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    correct_count = 0
+    per_question = []
+
+    for question_id in sorted(course_question_ids):
+        option_id = normalized_answers[question_id]
+
+        try:
+            option = Option.objects.get(pk=option_id)
+        except Option.DoesNotExist:
+            return Response(
+                {'detail': 'Option not found.', 'question_id': question_id, 'option_id': option_id},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Ensure option belongs to this question.
+        if option.QuestionID_id != question_id:
+            return Response(
+                {
+                    'detail': 'Option does not belong to the submitted question.',
+                    'question_id': question_id,
+                    'option_id': option_id,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        is_correct = bool(option.CorrectOption)
+        if is_correct:
+            correct_count += 1
+
+        per_question.append({'question_id': question_id, 'option_id': option_id, 'correct': is_correct})
+
+    total_questions = len(course_question_ids)
+    new_score_int = int(correct_count)
+
+    user = request.user
+    user_course, created = UserCourse.objects.get_or_create(
+        CourseID=course,
+        UserID=user,
+        defaults={
+            'CourseScore': str(new_score_int),
+            'CourseFlag': 'completed',
+        },
+    )
+
+    improved = False
+    if not created:
+        try:
+            existing_score_int = int(user_course.CourseScore)
+        except (TypeError, ValueError):
+            existing_score_int = 0
+
+        if new_score_int > existing_score_int:
+            user_course.CourseScore = str(new_score_int)
+            improved = True
+
+        user_course.CourseFlag = 'completed'
+        user_course.save()
+
+    # Log an activity (reuse existing SCORE_UPDATE choice to avoid migrations).
+    UserActivity.objects.create(
+        user=user,
+        activity_type='SCORE_UPDATE',
+        details=f"Course {course_id} submitted: {correct_count}/{total_questions} (improved={improved})",
+    )
+
+    return Response(
+        {
+            'course_id': course.CourseID,
+            'total': total_questions,
+            'correct': correct_count,
+            'score': new_score_int,
+            'best_score': int(user_course.CourseScore),
+            'improved': improved,
+            'completed': True,
+            'per_question': per_question,
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def markCourseCompletedByCourseID(request, course_id):
     """Mark a course as completed for the current user and update score if higher.
 
@@ -240,6 +405,27 @@ def getCompletedCourse(request):
     completed = UserCourse.objects.filter(UserID=user, CourseFlag='completed').values_list('CourseID_id', flat=True)
     # Cast to list of integers for JSON response
     return Response(list(completed))
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def getCompletedCourseScores(request):
+    """Return completed courses with best score for current user.
+
+    Response shape: [ { "CourseID": <int>, "CourseScore": <int> }, ... ]
+    """
+    user = request.user
+    completed = UserCourse.objects.filter(UserID=user, CourseFlag='completed').only('CourseID_id', 'CourseScore')
+
+    data = []
+    for item in completed:
+        try:
+            score_int = int(item.CourseScore)
+        except (TypeError, ValueError):
+            score_int = 0
+        data.append({'CourseID': item.CourseID_id, 'CourseScore': score_int})
+
+    return Response(data)
 @api_view(['POST'])
 def send_test_email(request):
     recipient = request.data.get('to')
