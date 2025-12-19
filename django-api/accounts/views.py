@@ -207,6 +207,7 @@ def markCourseCompletedByCourseID(request, course_id):
         defaults={
             'CourseScore': str(new_score_int),
             'CourseFlag': 'completed',
+            'CompletedAt': timezone.now(),
         },
     )
 
@@ -221,6 +222,8 @@ def markCourseCompletedByCourseID(request, course_id):
             user_course.CourseScore = str(new_score_int)
 
         user_course.CourseFlag = 'completed'
+        if not user_course.CompletedAt:
+            user_course.CompletedAt = timezone.now()
         user_course.save()
 
     return Response(
@@ -230,6 +233,59 @@ def markCourseCompletedByCourseID(request, course_id):
             'CourseScore': user_course.CourseScore,
         }
     )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def cert(request):
+    """Return subjects that the current user has fully completed.
+
+    A subject is considered completed if *all* its courses have a
+    UserCourse record for the current user with CourseFlag='completed'.
+
+    Response example:
+    [
+      {
+        "user_name": "alice",
+        "subject_name": "Git",
+        "completed_date": "2025-01-10"
+      },
+      ...
+    ]
+    """
+    user = request.user
+
+    results = []
+
+    for subject in Subject.objects.all():
+        courses_qs = subject.courses.all()
+        total_courses = courses_qs.count()
+        if total_courses == 0:
+            continue
+
+        user_courses_qs = UserCourse.objects.filter(
+            UserID=user,
+            CourseID__in=courses_qs,
+            CourseFlag='completed',
+        )
+
+        if user_courses_qs.count() != total_courses:
+            continue
+
+        # Subject is fully completed; use the latest CompletedAt among its courses
+        completed_dates = [uc.CompletedAt for uc in user_courses_qs if uc.CompletedAt]
+        completed_date_str = None
+        if completed_dates:
+            latest = max(completed_dates)
+            completed_date_str = latest.date().isoformat()
+
+        results.append({
+            'user_name': user.user_name,
+            'subject_name': subject.SubjectName,
+            'completed_date': completed_date_str,
+        })
+
+    return Response(results)
 
 
 @api_view(['GET'])
