@@ -55,8 +55,8 @@ class UserProfile(models.Model):
     last_login_date = models.DateField(null=True, blank=True)
     profile_pic = models.BinaryField(null=True, blank=True)
     profile_pic_mime = models.CharField(max_length=100, null=True, blank=True)
-    recent_course = models.ForeignKey('Course', null=True, blank=True, on_delete=models.SET_NULL, related_name='recent_users')
-    recent_course_updated_at = models.DateTimeField(null=True, blank=True)
+    bookmarked_subject = models.ForeignKey('Subject', null=True, blank=True, on_delete=models.SET_NULL, related_name='bookmarked_users')
+    bookmarked_subject_updated_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.user.user_name}'s profile"
@@ -110,9 +110,24 @@ class Subject(models.Model):
     SubjectID = models.AutoField(primary_key=True)
     SubjectName = models.CharField(max_length=255)
     SubjectDescription = models.TextField()
+    icon_svg_url = models.URLField(null=True, blank=True)
 
     def __str__(self):
         return self.SubjectName
+
+
+class SubjectBookmark(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='subject_bookmarks')
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name='bookmarked_by')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['user', '-created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.user.user_name} bookmarked {self.subject.SubjectName}"
 
 
 class Course(models.Model):

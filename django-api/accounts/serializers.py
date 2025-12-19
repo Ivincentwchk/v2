@@ -4,25 +4,25 @@ from accounts.models import User, UserProfile, UserActivity, Subject, Course, Us
 
 class UserProfileSerializer(serializers.ModelSerializer):
     has_profile_pic = serializers.SerializerMethodField()
-    recent_course_id = serializers.SerializerMethodField()
-    recent_course_title = serializers.SerializerMethodField()
+    bookmarked_subject_id = serializers.SerializerMethodField()
+    bookmarked_subject_name = serializers.SerializerMethodField()
 
     class Meta:
         model = UserProfile
-        fields = ['score', 'rank', 'login_streak_days', 'last_login_date', 'has_profile_pic', 'profile_pic_mime', 'recent_course_id', 'recent_course_title', 'recent_course_updated_at']
+        fields = ['score', 'rank', 'login_streak_days', 'last_login_date', 'has_profile_pic', 'profile_pic_mime', 'bookmarked_subject_id', 'bookmarked_subject_name', 'bookmarked_subject_updated_at']
 
     def get_has_profile_pic(self, obj):
         return bool(obj.profile_pic)
 
-    def get_recent_course_id(self, obj):
+    def get_bookmarked_subject_id(self, obj):
         try:
-            return obj.recent_course.CourseID if obj.recent_course is not None else None
+            return obj.bookmarked_subject.SubjectID if obj.bookmarked_subject is not None else None
         except Exception:
             return None
 
-    def get_recent_course_title(self, obj):
+    def get_bookmarked_subject_name(self, obj):
         try:
-            return obj.recent_course.CourseTitle if obj.recent_course is not None else None
+            return obj.bookmarked_subject.SubjectName if obj.bookmarked_subject is not None else None
         except Exception:
             return None
 
@@ -54,7 +54,7 @@ class UserActivitySerializer(serializers.ModelSerializer):
 class SubjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Subject
-        fields = ['SubjectID', 'SubjectName', 'SubjectDescription']
+        fields = ['SubjectID', 'SubjectName', 'SubjectDescription', 'icon_svg_url']
 
 
 class CourseSerializer(serializers.ModelSerializer):

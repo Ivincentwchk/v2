@@ -13,7 +13,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.db import transaction
-from accounts.models import User, UserActivity, Course, Subject, Question, Option, UserCourse, Achievement, UserAchievement
+from accounts.models import User, UserActivity, Course, Subject, Question, Option, UserCourse, Achievement, UserAchievement, SubjectBookmark
 from accounts.serializers import (
     UserSerializer,
     CourseSerializer,
@@ -29,6 +29,31 @@ from accounts.serializers import (
 def me(request):
     user = request.user
     serializer = UserSerializer(user)
+
+    recent_bookmarks_qs = (
+        SubjectBookmark.objects.filter(user=user)
+        .select_related('subject')
+        .order_by('-created_at')
+        .only('created_at', 'subject__SubjectID', 'subject__SubjectName', 'subject__icon_svg_url')
+    )
+
+    recent_bookmarked_subjects = []
+    seen_subject_ids = set()
+    for bm in recent_bookmarks_qs:
+        sid = getattr(bm.subject, 'SubjectID', None)
+        if sid is None or sid in seen_subject_ids:
+            continue
+        seen_subject_ids.add(sid)
+        recent_bookmarked_subjects.append(
+            {
+                'subject_id': bm.subject.SubjectID,
+                'subject_name': bm.subject.SubjectName,
+                'bookmarked_at': bm.created_at,
+                'subject_icon_svg_url': bm.subject.icon_svg_url,
+            }
+        )
+        if len(recent_bookmarked_subjects) >= 5:
+            break
 
     completed = UserCourse.objects.filter(UserID=user, CourseFlag='completed').only('CourseID_id', 'CourseScore')
 
@@ -50,42 +75,95 @@ def me(request):
         pass
     data['total_score'] = total_score
     data['completed_course_scores'] = completed_course_scores
+    data['recent_bookmarked_subjects'] = recent_bookmarked_subjects
     return Response(data)
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-def set_recent_course(request):
-    course_id = request.data.get('course_id')
-    if course_id is None:
-        return Response({'detail': 'course_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+def set_bookmarked_subject(request):
+    subject_id = request.data.get('subject_id')
+    if subject_id is None:
+        return Response({'detail': 'subject_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        course_id_int = int(course_id)
+        subject_id_int = int(subject_id)
     except (TypeError, ValueError):
-        return Response({'detail': 'course_id must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'detail': 'subject_id must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        course = Course.objects.get(pk=course_id_int)
-    except Course.DoesNotExist:
-        return Response({'detail': 'Course not found.'}, status=status.HTTP_404_NOT_FOUND)
+        subject = Subject.objects.get(pk=subject_id_int)
+    except Subject.DoesNotExist:
+        return Response({'detail': 'Subject not found.'}, status=status.HTTP_404_NOT_FOUND)
 
     profile = request.user.profile
-    profile.recent_course = course
-    profile.recent_course_updated_at = timezone.now()
-    profile.save(update_fields=['recent_course', 'recent_course_updated_at'])
+    profile.bookmarked_subject = subject
+    profile.bookmarked_subject_updated_at = timezone.now()
+    profile.save(update_fields=['bookmarked_subject', 'bookmarked_subject_updated_at'])
+
+    with transaction.atomic():
+        # Remove older duplicates for the same subject so history stays unique per subject.
+        SubjectBookmark.objects.filter(user=request.user, subject=subject).delete()
+        SubjectBookmark.objects.create(user=request.user, subject=subject)
+
+        # Trim to the 5 most recent unique subjects.
+        keep_ids = (
+            SubjectBookmark.objects.filter(user=request.user)
+            .order_by('-created_at')
+            .values_list('id', flat=True)[:5]
+        )
+        SubjectBookmark.objects.filter(user=request.user).exclude(id__in=list(keep_ids)).delete()
 
     UserActivity.objects.create(
         user=request.user,
         activity_type='SCORE_UPDATE',
-        details=f"Recent course set: {course_id_int}",
+        details=f"Bookmarked subject set: {subject_id_int}",
     )
 
     return Response(
         {
-            'recent_course_id': course.CourseID,
-            'recent_course_title': course.CourseTitle,
-            'recent_course_updated_at': profile.recent_course_updated_at,
+            'bookmarked_subject_id': subject.SubjectID,
+            'bookmarked_subject_name': subject.SubjectName,
+            'bookmarked_subject_updated_at': profile.bookmarked_subject_updated_at,
+        }
+    )
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def remove_bookmarked_subject(request, subject_id):
+    try:
+        subject_id_int = int(subject_id)
+    except (TypeError, ValueError):
+        return Response({'detail': 'subject_id must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    with transaction.atomic():
+        SubjectBookmark.objects.filter(user=request.user, subject_id=subject_id_int).delete()
+
+        latest = (
+            SubjectBookmark.objects.filter(user=request.user)
+            .select_related('subject')
+            .order_by('-created_at')
+            .first()
+        )
+
+        profile = request.user.profile
+        if latest is None:
+            profile.bookmarked_subject = None
+            profile.bookmarked_subject_updated_at = timezone.now()
+            profile.save(update_fields=['bookmarked_subject', 'bookmarked_subject_updated_at'])
+            return Response({'detail': 'removed', 'bookmarked_subject_id': None})
+
+        profile.bookmarked_subject = latest.subject
+        profile.bookmarked_subject_updated_at = timezone.now()
+        profile.save(update_fields=['bookmarked_subject', 'bookmarked_subject_updated_at'])
+
+    return Response(
+        {
+            'detail': 'removed',
+            'bookmarked_subject_id': profile.bookmarked_subject.SubjectID,
+            'bookmarked_subject_name': profile.bookmarked_subject.SubjectName,
+            'bookmarked_subject_updated_at': profile.bookmarked_subject_updated_at,
         }
     )
 
@@ -467,12 +545,12 @@ def submitCourseAnswers(request, course_id):
 
     user = request.user
 
-    # Track recent course
+    # Track bookmarked subject
     try:
         profile = user.profile
-        profile.recent_course = course
-        profile.recent_course_updated_at = timezone.now()
-        profile.save(update_fields=['recent_course', 'recent_course_updated_at'])
+        profile.bookmarked_subject = course.SubjectID
+        profile.bookmarked_subject_updated_at = timezone.now()
+        profile.save(update_fields=['bookmarked_subject', 'bookmarked_subject_updated_at'])
     except Exception:
         pass
 
@@ -545,12 +623,12 @@ def markCourseCompletedByCourseID(request, course_id):
     except Course.DoesNotExist:
         return Response({'detail': 'Course not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-    # Track recent course
+    # Track bookmarked subject
     try:
         profile = user.profile
-        profile.recent_course = course
-        profile.recent_course_updated_at = timezone.now()
-        profile.save(update_fields=['recent_course', 'recent_course_updated_at'])
+        profile.bookmarked_subject = course.SubjectID
+        profile.bookmarked_subject_updated_at = timezone.now()
+        profile.save(update_fields=['bookmarked_subject', 'bookmarked_subject_updated_at'])
     except Exception:
         pass
 
