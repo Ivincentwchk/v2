@@ -3,9 +3,28 @@ from accounts.models import User, UserProfile, UserActivity, Subject, Course, Us
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
+    has_profile_pic = serializers.SerializerMethodField()
+    bookmarked_subject_id = serializers.SerializerMethodField()
+    bookmarked_subject_name = serializers.SerializerMethodField()
+
     class Meta:
         model = UserProfile
-        fields = ['score', 'rank', 'login_streak_days', 'last_login_date']
+        fields = ['score', 'rank', 'login_streak_days', 'last_login_date', 'has_profile_pic', 'profile_pic_mime', 'bookmarked_subject_id', 'bookmarked_subject_name', 'bookmarked_subject_updated_at']
+
+    def get_has_profile_pic(self, obj):
+        return bool(obj.profile_pic)
+
+    def get_bookmarked_subject_id(self, obj):
+        try:
+            return obj.bookmarked_subject.SubjectID if obj.bookmarked_subject is not None else None
+        except Exception:
+            return None
+
+    def get_bookmarked_subject_name(self, obj):
+        try:
+            return obj.bookmarked_subject.SubjectName if obj.bookmarked_subject is not None else None
+        except Exception:
+            return None
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -35,7 +54,7 @@ class UserActivitySerializer(serializers.ModelSerializer):
 class SubjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Subject
-        fields = ['SubjectID', 'SubjectName', 'SubjectDescription']
+        fields = ['SubjectID', 'SubjectName', 'SubjectDescription', 'icon_svg_url']
 
 
 class CourseSerializer(serializers.ModelSerializer):

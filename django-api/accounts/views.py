@@ -3,13 +3,17 @@ from datetime import date, timedelta
 
 from django.conf import settings
 from django.core.mail import BadHeaderError, send_mail
+from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import parser_classes
+from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
-from accounts.models import User, UserActivity, Course, Subject, Question, Option, UserCourse
+from django.db import transaction
+from accounts.models import User, UserActivity, Course, Subject, Question, Option, UserCourse, Achievement, UserAchievement, SubjectBookmark
 from accounts.serializers import (
     UserSerializer,
     CourseSerializer,
@@ -17,17 +21,277 @@ from accounts.serializers import (
     QuestionSerializer,
     QuestionDetailSerializer,
 )
-from datetime import date, timedelta
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.decorators import api_view, permission_classes
 
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def me(request):
-    serializer = UserSerializer(request.user)
-    return Response(serializer.data)
+    user = request.user
+    serializer = UserSerializer(user)
+
+    recent_bookmarks_qs = (
+        SubjectBookmark.objects.filter(user=user)
+        .select_related('subject')
+        .order_by('-created_at')
+        .only('created_at', 'subject__SubjectID', 'subject__SubjectName', 'subject__icon_svg_url')
+    )
+
+    recent_bookmarked_subjects = []
+    seen_subject_ids = set()
+    for bm in recent_bookmarks_qs:
+        sid = getattr(bm.subject, 'SubjectID', None)
+        if sid is None or sid in seen_subject_ids:
+            continue
+        seen_subject_ids.add(sid)
+        recent_bookmarked_subjects.append(
+            {
+                'subject_id': bm.subject.SubjectID,
+                'subject_name': bm.subject.SubjectName,
+                'bookmarked_at': bm.created_at,
+                'subject_icon_svg_url': bm.subject.icon_svg_url,
+            }
+        )
+        if len(recent_bookmarked_subjects) >= 5:
+            break
+
+    completed = UserCourse.objects.filter(UserID=user, CourseFlag='completed').only('CourseID_id', 'CourseScore')
+
+    total_score = 0
+    completed_course_scores = []
+    for item in completed:
+        try:
+            score_int = int(item.CourseScore)
+        except (TypeError, ValueError):
+            score_int = 0
+        total_score += score_int
+        completed_course_scores.append({'CourseID': item.CourseID_id, 'CourseScore': score_int})
+
+    data = serializer.data
+    try:
+        if data.get('profile') is not None:
+            data['profile']['profile_pic_url'] = request.build_absolute_uri('profile-pic/')
+    except Exception:
+        pass
+    data['total_score'] = total_score
+    data['completed_course_scores'] = completed_course_scores
+    data['recent_bookmarked_subjects'] = recent_bookmarked_subjects
+    return Response(data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def set_bookmarked_subject(request):
+    subject_id = request.data.get('subject_id')
+    if subject_id is None:
+        return Response({'detail': 'subject_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        subject_id_int = int(subject_id)
+    except (TypeError, ValueError):
+        return Response({'detail': 'subject_id must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        subject = Subject.objects.get(pk=subject_id_int)
+    except Subject.DoesNotExist:
+        return Response({'detail': 'Subject not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    profile = request.user.profile
+    profile.bookmarked_subject = subject
+    profile.bookmarked_subject_updated_at = timezone.now()
+    profile.save(update_fields=['bookmarked_subject', 'bookmarked_subject_updated_at'])
+
+    with transaction.atomic():
+        # Remove older duplicates for the same subject so history stays unique per subject.
+        SubjectBookmark.objects.filter(user=request.user, subject=subject).delete()
+        SubjectBookmark.objects.create(user=request.user, subject=subject)
+
+        # Trim to the 5 most recent unique subjects.
+        keep_ids = (
+            SubjectBookmark.objects.filter(user=request.user)
+            .order_by('-created_at')
+            .values_list('id', flat=True)[:5]
+        )
+        SubjectBookmark.objects.filter(user=request.user).exclude(id__in=list(keep_ids)).delete()
+
+    UserActivity.objects.create(
+        user=request.user,
+        activity_type='SCORE_UPDATE',
+        details=f"Bookmarked subject set: {subject_id_int}",
+    )
+
+    return Response(
+        {
+            'bookmarked_subject_id': subject.SubjectID,
+            'bookmarked_subject_name': subject.SubjectName,
+            'bookmarked_subject_updated_at': profile.bookmarked_subject_updated_at,
+        }
+    )
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def remove_bookmarked_subject(request, subject_id):
+    try:
+        subject_id_int = int(subject_id)
+    except (TypeError, ValueError):
+        return Response({'detail': 'subject_id must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    with transaction.atomic():
+        SubjectBookmark.objects.filter(user=request.user, subject_id=subject_id_int).delete()
+
+        latest = (
+            SubjectBookmark.objects.filter(user=request.user)
+            .select_related('subject')
+            .order_by('-created_at')
+            .first()
+        )
+
+        profile = request.user.profile
+        if latest is None:
+            profile.bookmarked_subject = None
+            profile.bookmarked_subject_updated_at = timezone.now()
+            profile.save(update_fields=['bookmarked_subject', 'bookmarked_subject_updated_at'])
+            return Response({'detail': 'removed', 'bookmarked_subject_id': None})
+
+        profile.bookmarked_subject = latest.subject
+        profile.bookmarked_subject_updated_at = timezone.now()
+        profile.save(update_fields=['bookmarked_subject', 'bookmarked_subject_updated_at'])
+
+    return Response(
+        {
+            'detail': 'removed',
+            'bookmarked_subject_id': profile.bookmarked_subject.SubjectID,
+            'bookmarked_subject_name': profile.bookmarked_subject.SubjectName,
+            'bookmarked_subject_updated_at': profile.bookmarked_subject_updated_at,
+        }
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def achievements(request):
+    user = request.user
+    profile = user.profile
+
+    login_streak = int(profile.login_streak_days or 0)
+    completed_course_ids = set(
+        UserCourse.objects.filter(UserID=user, CourseFlag='completed').values_list('CourseID_id', flat=True)
+    )
+
+    definitions = []
+    login_targets = [5, 10, 50, 100, 365, 500]
+    for target in login_targets:
+        definitions.append({
+            'key': f'login_streak_{target}',
+            'category': 'login_streak',
+            'title': f'Login Streak {target}',
+            'description': f'Log in for {target} days in a row.',
+            'icon': 'streak',
+            'target': target,
+            'compute': lambda t=target: (min(login_streak, t), login_streak >= t, {}),
+        })
+
+    newbie_specs = [
+        ('docker_newbie', 'Docker Newbie', {20, 21}, 'docker'),
+        ('git_newbie', 'Git Newbie', {10, 11}, 'git'),
+    ]
+    for key, title, required, icon in newbie_specs:
+        definitions.append({
+            'key': key,
+            'category': 'course_newbie',
+            'title': title,
+            'description': 'Finish the intro courses 1 and 2.',
+            'icon': icon,
+            'target': len(required),
+            'compute': lambda req=required: (
+                len(req.intersection(completed_course_ids)),
+                req.issubset(completed_course_ids),
+                {'required_course_ids': sorted(req)},
+            ),
+        })
+
+    results = []
+    with transaction.atomic():
+        for spec in definitions:
+            progress, unlocked, meta = spec['compute']()
+            achievement, _ = Achievement.objects.get_or_create(
+                key=spec['key'],
+                defaults={
+                    'category': spec['category'],
+                    'title': spec['title'],
+                    'description': spec['description'],
+                    'icon': spec['icon'],
+                    'target': spec['target'],
+                    'metadata': meta,
+                },
+            )
+
+            if achievement.target != spec['target'] or achievement.title != spec['title'] or achievement.description != spec['description'] or achievement.icon != spec['icon'] or achievement.category != spec['category']:
+                achievement.category = spec['category']
+                achievement.title = spec['title']
+                achievement.description = spec['description']
+                achievement.icon = spec['icon']
+                achievement.target = spec['target']
+                achievement.metadata = meta
+                achievement.save()
+
+            ua, _ = UserAchievement.objects.get_or_create(user=user, achievement=achievement)
+            ua.progress = int(progress)
+            if unlocked and not ua.unlocked:
+                ua.unlocked = True
+                ua.unlocked_at = timezone.now()
+            if not unlocked and ua.unlocked:
+                ua.unlocked = False
+                ua.unlocked_at = None
+            ua.save()
+
+            payload = {
+                'id': achievement.key,
+                'type': achievement.category,
+                'title': achievement.title,
+                'description': achievement.description,
+                'icon': achievement.icon,
+                'target': achievement.target,
+                'progress': ua.progress,
+                'unlocked': ua.unlocked,
+            }
+            if achievement.metadata:
+                payload.update(achievement.metadata)
+            results.append(payload)
+
+    return Response({'login_streak_days': login_streak, 'achievements': results})
+
+
+@api_view(['GET', 'PUT', 'DELETE'])
+@permission_classes([IsAuthenticated])
+@parser_classes([MultiPartParser])
+def me_profile_pic(request):
+    profile = request.user.profile
+
+    if request.method == 'GET':
+        if not profile.profile_pic:
+            return Response({'detail': 'No profile picture.'}, status=status.HTTP_404_NOT_FOUND)
+
+        content_type = profile.profile_pic_mime or 'application/octet-stream'
+        response = HttpResponse(bytes(profile.profile_pic), content_type=content_type)
+        response['Cache-Control'] = 'no-store'
+        return response
+
+    if request.method == 'DELETE':
+        profile.profile_pic = None
+        profile.profile_pic_mime = None
+        profile.save(update_fields=['profile_pic', 'profile_pic_mime'])
+        return Response({'detail': 'Profile picture removed.'})
+
+    upload = request.FILES.get('file')
+    if not upload:
+        return Response({'detail': 'Missing file. Upload using multipart form field "file".'}, status=status.HTTP_400_BAD_REQUEST)
+
+    profile.profile_pic = upload.read()
+    profile.profile_pic_mime = upload.content_type
+    profile.save(update_fields=['profile_pic', 'profile_pic_mime'])
+    return Response({'detail': 'Profile picture updated.', 'profile_pic_mime': profile.profile_pic_mime})
 
 
 @api_view(['GET'])
@@ -179,6 +443,164 @@ def verifyAnsByOptionID(request, option_id):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+def submitCourseAnswers(request, course_id):
+    """Submit a full course attempt in one request.
+
+    Expects JSON body:
+      { "answers": [ {"question_id": <int>, "option_id": <int>}, ... ] }
+
+    Rules:
+    - Must answer all questions in the course.
+    - Backend validates question belongs to course and option belongs to question.
+    - Records highest score for the user/course (can retry).
+    """
+
+    try:
+        course = Course.objects.get(pk=course_id)
+    except Course.DoesNotExist:
+        return Response({'detail': 'Course not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    answers = request.data.get('answers')
+    if not isinstance(answers, list):
+        return Response({'detail': 'answers must be a list.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    course_questions = list(Question.objects.filter(CourseID_id=course_id).only('QuestionID'))
+    course_question_ids = {q.QuestionID for q in course_questions}
+
+    if not course_question_ids:
+        return Response({'detail': 'Course has no questions.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    normalized_answers = {}
+    invalid_items = []
+
+    for idx, item in enumerate(answers):
+        if not isinstance(item, dict):
+            invalid_items.append({'index': idx, 'detail': 'Each answer must be an object.'})
+            continue
+
+        question_id = item.get('question_id')
+        option_id = item.get('option_id')
+
+        try:
+            question_id_int = int(question_id)
+            option_id_int = int(option_id)
+        except (TypeError, ValueError):
+            invalid_items.append({'index': idx, 'detail': 'question_id and option_id must be integers.'})
+            continue
+
+        # Keep the latest answer if duplicated.
+        normalized_answers[question_id_int] = option_id_int
+
+    if invalid_items:
+        return Response({'detail': 'Invalid answers payload.', 'errors': invalid_items}, status=status.HTTP_400_BAD_REQUEST)
+
+    submitted_question_ids = set(normalized_answers.keys())
+    extra_question_ids = sorted(list(submitted_question_ids - course_question_ids))
+    if extra_question_ids:
+        return Response(
+            {'detail': 'Some submitted questions are not part of this course.', 'extra_question_ids': extra_question_ids},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    missing_question_ids = sorted(list(course_question_ids - submitted_question_ids))
+    if missing_question_ids:
+        return Response(
+            {'detail': 'You must answer all questions before submitting.', 'missing_question_ids': missing_question_ids},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    correct_count = 0
+    per_question = []
+
+    for question_id in sorted(course_question_ids):
+        option_id = normalized_answers[question_id]
+
+        try:
+            option = Option.objects.get(pk=option_id)
+        except Option.DoesNotExist:
+            return Response(
+                {'detail': 'Option not found.', 'question_id': question_id, 'option_id': option_id},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Ensure option belongs to this question.
+        if option.QuestionID_id != question_id:
+            return Response(
+                {
+                    'detail': 'Option does not belong to the submitted question.',
+                    'question_id': question_id,
+                    'option_id': option_id,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        is_correct = bool(option.CorrectOption)
+        if is_correct:
+            correct_count += 1
+
+        per_question.append({'question_id': question_id, 'option_id': option_id, 'correct': is_correct})
+
+    total_questions = len(course_question_ids)
+    new_score_int = int(correct_count)
+
+    user = request.user
+
+    # Track bookmarked subject
+    try:
+        profile = user.profile
+        profile.bookmarked_subject = course.SubjectID
+        profile.bookmarked_subject_updated_at = timezone.now()
+        profile.save(update_fields=['bookmarked_subject', 'bookmarked_subject_updated_at'])
+    except Exception:
+        pass
+
+    user_course, created = UserCourse.objects.get_or_create(
+        CourseID=course,
+        UserID=user,
+        defaults={
+            'CourseScore': str(new_score_int),
+            'CourseFlag': 'completed',
+        },
+    )
+
+    improved = False
+    if not created:
+        try:
+            existing_score_int = int(user_course.CourseScore)
+        except (TypeError, ValueError):
+            existing_score_int = 0
+
+        if new_score_int > existing_score_int:
+            user_course.CourseScore = str(new_score_int)
+            improved = True
+
+        user_course.CourseFlag = 'completed'
+        user_course.save()
+
+    # Log an activity (reuse existing SCORE_UPDATE choice to avoid migrations).
+    UserActivity.objects.create(
+        user=user,
+        activity_type='SCORE_UPDATE',
+        details=f"Course {course_id} submitted: {correct_count}/{total_questions} (improved={improved})",
+    )
+
+    return Response(
+        {
+            'course_id': course.CourseID,
+            'total': total_questions,
+            'correct': correct_count,
+            'score': new_score_int,
+            'best_score': int(user_course.CourseScore),
+            'improved': improved,
+            'completed': True,
+            'per_question': per_question,
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def markCourseCompletedByCourseID(request, course_id):
     """Mark a course as completed for the current user and update score if higher.
 
@@ -200,6 +622,15 @@ def markCourseCompletedByCourseID(request, course_id):
         course = Course.objects.get(pk=course_id)
     except Course.DoesNotExist:
         return Response({'detail': 'Course not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    # Track bookmarked subject
+    try:
+        profile = user.profile
+        profile.bookmarked_subject = course.SubjectID
+        profile.bookmarked_subject_updated_at = timezone.now()
+        profile.save(update_fields=['bookmarked_subject', 'bookmarked_subject_updated_at'])
+    except Exception:
+        pass
 
     user_course, created = UserCourse.objects.get_or_create(
         CourseID=course,
@@ -240,6 +671,27 @@ def getCompletedCourse(request):
     completed = UserCourse.objects.filter(UserID=user, CourseFlag='completed').values_list('CourseID_id', flat=True)
     # Cast to list of integers for JSON response
     return Response(list(completed))
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def getCompletedCourseScores(request):
+    """Return completed courses with best score for current user.
+
+    Response shape: [ { "CourseID": <int>, "CourseScore": <int> }, ... ]
+    """
+    user = request.user
+    completed = UserCourse.objects.filter(UserID=user, CourseFlag='completed').only('CourseID_id', 'CourseScore')
+
+    data = []
+    for item in completed:
+        try:
+            score_int = int(item.CourseScore)
+        except (TypeError, ValueError):
+            score_int = 0
+        data.append({'CourseID': item.CourseID_id, 'CourseScore': score_int})
+
+    return Response(data)
 @api_view(['POST'])
 def send_test_email(request):
     recipient = request.data.get('to')

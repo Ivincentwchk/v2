@@ -9,7 +9,6 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
       - postgres_data_v2:/var/lib/postgresql/data
-      - ./sqls:/docker-entrypoint-initdb.d:ro
     ports:
       - "5432:5432"
     healthcheck:
@@ -33,7 +32,8 @@ services:
         condition: service_healthy
     volumes:
       - ./django-api:/app
-    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+      - ./sqls:/sqls:ro
+    command: sh -c "python manage.py migrate && python manage.py seed_db && python manage.py runserver 0.0.0.0:8000"
 
   gui:
     image: dpage/pgadmin4
