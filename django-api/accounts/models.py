@@ -55,6 +55,8 @@ class UserProfile(models.Model):
     last_login_date = models.DateField(null=True, blank=True)
     profile_pic = models.BinaryField(null=True, blank=True)
     profile_pic_mime = models.CharField(max_length=100, null=True, blank=True)
+    recent_course = models.ForeignKey('Course', null=True, blank=True, on_delete=models.SET_NULL, related_name='recent_users')
+    recent_course_updated_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.user.user_name}'s profile"

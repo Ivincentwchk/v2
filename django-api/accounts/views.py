@@ -53,6 +53,43 @@ def me(request):
     return Response(data)
 
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def set_recent_course(request):
+    course_id = request.data.get('course_id')
+    if course_id is None:
+        return Response({'detail': 'course_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        course_id_int = int(course_id)
+    except (TypeError, ValueError):
+        return Response({'detail': 'course_id must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        course = Course.objects.get(pk=course_id_int)
+    except Course.DoesNotExist:
+        return Response({'detail': 'Course not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    profile = request.user.profile
+    profile.recent_course = course
+    profile.recent_course_updated_at = timezone.now()
+    profile.save(update_fields=['recent_course', 'recent_course_updated_at'])
+
+    UserActivity.objects.create(
+        user=request.user,
+        activity_type='SCORE_UPDATE',
+        details=f"Recent course set: {course_id_int}",
+    )
+
+    return Response(
+        {
+            'recent_course_id': course.CourseID,
+            'recent_course_title': course.CourseTitle,
+            'recent_course_updated_at': profile.recent_course_updated_at,
+        }
+    )
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def achievements(request):
@@ -429,6 +466,16 @@ def submitCourseAnswers(request, course_id):
     new_score_int = int(correct_count)
 
     user = request.user
+
+    # Track recent course
+    try:
+        profile = user.profile
+        profile.recent_course = course
+        profile.recent_course_updated_at = timezone.now()
+        profile.save(update_fields=['recent_course', 'recent_course_updated_at'])
+    except Exception:
+        pass
+
     user_course, created = UserCourse.objects.get_or_create(
         CourseID=course,
         UserID=user,
@@ -497,6 +544,15 @@ def markCourseCompletedByCourseID(request, course_id):
         course = Course.objects.get(pk=course_id)
     except Course.DoesNotExist:
         return Response({'detail': 'Course not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    # Track recent course
+    try:
+        profile = user.profile
+        profile.recent_course = course
+        profile.recent_course_updated_at = timezone.now()
+        profile.save(update_fields=['recent_course', 'recent_course_updated_at'])
+    except Exception:
+        pass
 
     user_course, created = UserCourse.objects.get_or_create(
         CourseID=course,
