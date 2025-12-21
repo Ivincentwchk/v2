@@ -28,6 +28,17 @@ Ensure the following values are set:
 | `DATABASE_URL_FORMATTED` | Connection string Django uses to reach Postgres (`postgresql://user:pass@csci3100_db_server:5432/db`) |
 | `PGADMIN_DEFAULT_EMAIL`, `PGADMIN_DEFAULT_PASSWORD` | Login for pgAdmin GUI |
 
+### Repository layout
+
+```
+backend/
+├── django-api/        # Django project source (manage.py lives here)
+├── sqls/              # Seed SQL: db_seed.sql snapshot + legacy seed scripts
+├── scripts/           # Helper utilities (e.g., backup-db.sh)
+├── docker-compose.yml # Compose stack for Postgres + API + pgAdmin
+└── README.md
+```
+
 ---
 
 ## 2. Starting the services
@@ -99,7 +110,16 @@ docker compose logs -f gui          # pgAdmin
 
 ## 5. Database seed (export & restore)
 
-A snapshot of the current environment lives in `sqls/db_seed.sql`. To refresh it or create a new snapshot:
+The Django management command now **auto-detects `sqls/db_seed.sql`**. When that file exists, `python manage.py seed_db` will:
+
+1. Drop and recreate the `public` schema (inside a transaction) so the dump can replay cleanly.
+2. Stream the dump, including `COPY ... FROM stdin` sections, directly into Postgres.
+
+This happens automatically during `docker compose up --build` because the `api` service runs `python manage.py seed_db` on boot. No manual `psql` piping is required as long as `db_seed.sql` is present.
+
+### Updating the snapshot
+
+To capture a new snapshot of the live database into `sqls/db_seed.sql`:
 
 ```bash
 docker compose exec -T csci3100_db_server \
@@ -108,7 +128,13 @@ docker compose exec -T csci3100_db_server \
   > sqls/db_seed.sql
 ```
 
-To restore the snapshot into a blank database (after `docker compose up` so Postgres is running):
+On the next `docker compose up --build` (or manual `docker compose exec api python manage.py seed_db --force`), the new dump will be applied automatically.
+
+> Need the legacy, schema-preserving inserts instead? Remove/rename `db_seed.sql` and the seeder will fall back to `seed.sql`, `subject_course.sql`, etc.
+
+### Manual restore (optional)
+
+If you ever want to replay the dump yourself (e.g., outside of Docker), you can still pipe it into psql:
 
 ```bash
 cat sqls/db_seed.sql | docker compose exec -T csci3100_db_server \

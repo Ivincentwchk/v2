@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from io import StringIO
 from pathlib import Path
 
 from django.core.management.base import BaseCommand
@@ -31,8 +32,14 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("Seed data appears to exist; skipping (use --force to re-run)."))
             return
 
+        db_seed_sql = sql_dir / "db_seed.sql"
         seed_sql = sql_dir / "seed.sql"
-        if seed_sql.exists():
+
+        using_db_seed = db_seed_sql.exists()
+
+        if using_db_seed:
+            sql_files = [db_seed_sql]
+        elif seed_sql.exists():
             sql_files = [seed_sql]
         else:
             sql_files = [
@@ -49,14 +56,67 @@ class Command(BaseCommand):
 
         with transaction.atomic():
             with connection.cursor() as cursor:
+                if using_db_seed:
+                    self.stdout.write("Resetting public schema before applying db_seed.sql")
+                    cursor.execute("DROP SCHEMA IF EXISTS public CASCADE;")
+                    cursor.execute("CREATE SCHEMA public AUTHORIZATION CURRENT_USER;")
+                    cursor.execute("GRANT ALL ON SCHEMA public TO CURRENT_USER;")
+                    cursor.execute("GRANT ALL ON SCHEMA public TO public;")
+                    cursor.execute("COMMENT ON SCHEMA public IS 'standard public schema';")
+
                 for sql_path in sql_files:
                     self._execute_sql_file(cursor, sql_path)
 
         self.stdout.write(self.style.SUCCESS("Database seed completed."))
 
     def _execute_sql_file(self, cursor, sql_path: Path) -> None:
-        sql = sql_path.read_text(encoding="utf-8")
-        statements = [stmt.strip() for stmt in sql.split(";") if stmt.strip()]
+        copy_sql: str | None = None
+        copy_buffer: list[str] = []
+        statement_buffer: list[str] = []
 
-        for stmt in statements:
-            cursor.execute(stmt)
+        with sql_path.open(encoding="utf-8") as sql_file:
+            for raw_line in sql_file:
+                line = raw_line.rstrip("\n")
+
+                if copy_sql is not None:
+                    if line == r"\.":
+                        data_stream = StringIO("".join(copy_buffer))
+                        cursor.copy_expert(copy_sql, data_stream)
+                        copy_sql = None
+                        copy_buffer = []
+                    else:
+                        copy_buffer.append(raw_line)
+                    continue
+
+                statement_buffer.append(raw_line)
+                stripped = line.strip()
+
+                if not stripped or stripped.startswith("--"):
+                    continue
+
+                if ";" not in line:
+                    continue
+
+                statement = "".join(statement_buffer).strip()
+                statement_buffer = []
+
+                if not statement:
+                    continue
+
+                clean_lines = [ln for ln in statement.splitlines() if not ln.strip().startswith("--")]
+                clean_statement = "\n".join(clean_lines).strip()
+
+                if not clean_statement:
+                    continue
+
+                upper_stmt = clean_statement.upper()
+                if upper_stmt.startswith("COPY ") and "FROM STDIN" in upper_stmt:
+                    copy_sql = clean_statement
+                    copy_buffer = []
+                    continue
+
+                cursor.execute(clean_statement)
+
+            trailing = "\n".join([ln for ln in "".join(statement_buffer).splitlines() if not ln.strip().startswith("--")]).strip()
+            if trailing:
+                cursor.execute(trailing)
