@@ -79,6 +79,53 @@ def me(request):
     return Response(data)
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def rank(request):
+    """Return ranking list of users by profile.rank descending.
+
+    If total users <= 10:
+      - Return all users.
+
+    If total users > 10:
+      - Return top 10 users by rank.
+      - Additionally include the caller user's row if not already in top 10.
+    """
+
+    user = request.user
+
+    queryset = User.objects.select_related('profile').order_by('profile__rank')
+
+    total_users = queryset.count()
+
+    def serialize_user(u):
+        profile = getattr(u, 'profile', None)
+        return {
+            'user_name': u.user_name,
+            'rank': getattr(profile, 'rank', None) if profile is not None else None,
+            'score': getattr(profile, 'score', None) if profile is not None else None,
+        }
+
+    if total_users <= 10:
+        data = [serialize_user(u) for u in queryset]
+        return Response(data)
+
+    top_users = list(queryset[:10])
+    data = [serialize_user(u) for u in top_users]
+
+    # If caller already in top 10, no need to add extra row.
+    if any(u.pk == user.pk for u in top_users):
+        return Response(data)
+
+    try:
+        caller_user = queryset.get(pk=user.pk)
+    except User.DoesNotExist:
+        caller_user = user
+
+    data.append(serialize_user(caller_user))
+    return Response(data)
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def set_bookmarked_subject(request):
