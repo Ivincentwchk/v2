@@ -97,7 +97,39 @@ docker compose logs -f gui          # pgAdmin
 
 ---
 
-## 5. Troubleshooting
+## 5. Database seed (export & restore)
+
+A snapshot of the current environment lives in `sqls/db_seed.sql`. To refresh it or create a new snapshot:
+
+```bash
+docker compose exec -T csci3100_db_server \
+  pg_dump -U django_user -d backend_db \
+  --format=plain --no-owner --no-acl \
+  > sqls/db_seed.sql
+```
+
+To restore the snapshot into a blank database (after `docker compose up` so Postgres is running):
+
+```bash
+cat sqls/db_seed.sql | docker compose exec -T csci3100_db_server \
+  psql -U django_user -d backend_db
+```
+
+> This dump includes schema + data (subjects, courses, questions, icons, seed users, etc.). The `ON CONFLICT` logic from `sqls/subject_course.sql` can still be run separately if you only need subject/course content.
+
+### On-demand backup helper
+
+For “big change” checkpoints, run the helper script:
+
+```bash
+./scripts/backup-db.sh
+```
+
+It writes a timestamped dump (e.g., `sqls/db_seed_20251221-145700.sql`) and updates `sqls/db_seed_latest.sql` to point at the newest file. You can commit any snapshot you want to preserve (or keep them gitignored if they become large).
+
+---
+
+## 6. Troubleshooting
 
 - **Environment mismatch:** Ensure `.env` and `.env.example` stay in sync. If Postgres refuses connections, double-check `POSTGRES_DB` vs `DATABASE_URL_FORMATTED`.
 - **Stale volumes:** To reset the Postgres data volume, run `docker compose down -v` (this erases all data).
@@ -106,7 +138,7 @@ docker compose logs -f gui          # pgAdmin
 
 ---
 
-## 6. Email (Gmail SMTP) setup
+## 7. Email (Gmail SMTP) setup
 
 1. Create a Gmail App Password (Google Account → Security → App passwords → select “Mail” + “Other”).
 2. Update `.env` with:
