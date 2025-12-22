@@ -96,3 +96,33 @@ def me_profile_pic(request):
     profile.profile_pic_mime = upload.content_type
     profile.save(update_fields=["profile_pic", "profile_pic_mime"])
     return Response({"detail": "Profile picture updated.", "profile_pic_mime": profile.profile_pic_mime})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def me_change_password(request):
+    current_password = request.data.get("current_password")
+    new_password = request.data.get("new_password")
+
+    if not current_password or not new_password:
+        return Response(
+            {"detail": "current_password and new_password are required."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if len(new_password) < 8:
+        return Response(
+            {"detail": "Password must be at least 8 characters long."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    user = request.user
+    if not user.check_password(current_password):
+        return Response(
+            {"detail": "Current password is incorrect."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    user.set_password(new_password)
+    user.save(update_fields=["password"])
+    return Response({"detail": "Password updated successfully."}, status=status.HTTP_200_OK)

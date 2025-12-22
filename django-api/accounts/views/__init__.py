@@ -1,4 +1,4 @@
-from .profile import me, me_profile_pic
+from .profile import me, me_profile_pic, me_change_password
 from .ranking import rank
 from .bookmarks import set_bookmarked_subject, remove_bookmarked_subject
 from .achievements import achievements
@@ -28,6 +28,7 @@ from .cert import certificate_status, certificate_download
 __all__ = [
     "me",
     "me_profile_pic",
+    "me_change_password",
     "rank",
     "set_bookmarked_subject",
     "remove_bookmarked_subject",
