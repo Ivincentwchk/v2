@@ -2,6 +2,7 @@ import secrets
 from datetime import date, timedelta
 
 from django.conf import settings
+from email.utils import formataddr, parseaddr
 from django.core.mail import BadHeaderError, send_mail
 from django.utils import timezone
 from rest_framework import generics, status
@@ -11,6 +12,14 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from accounts.models import PasswordResetToken, User, UserActivity
 from accounts.serializers import UserSerializer
+
+
+def _resolve_from_email() -> str:
+    raw = getattr(settings, "DEFAULT_FROM_EMAIL", "") or ""
+    name, addr = parseaddr(raw)
+    if not addr:
+        return "no-reply@csci3100.local"
+    return formataddr((name, addr)) if name else addr
 
 
 class RegisterView(generics.CreateAPIView):
@@ -105,7 +114,7 @@ def send_test_email(request):
         send_mail(
             subject=subject,
             message=message,
-            from_email=settings.DEFAULT_FROM_EMAIL,
+            from_email=_resolve_from_email(),
             recipient_list=[recipient],
             fail_silently=False,
         )
@@ -142,18 +151,13 @@ def request_password_reset(request):
             f"- CSCI3100 Team"
         )
 
-        try:
-            send_mail(
-                subject=subject,
-                message=message,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[email],
-                fail_silently=False,
-            )
-        except BadHeaderError:
-            return Response({'detail': 'Invalid header found.'}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as exc:
-            return Response({'detail': f'Failed to send email: {exc}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        send_mail(
+            subject=subject,
+            message=message,
+            from_email=_resolve_from_email(),
+            recipient_list=[email],
+            fail_silently=True,
+        )
 
     return Response({'detail': 'If an account exists for that email, you will receive reset instructions shortly.'}, status=status.HTTP_200_OK)
 

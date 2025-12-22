@@ -80,6 +80,22 @@ docker compose exec api python manage.py createsuperuser
 docker compose exec api python manage.py shell
 ```
 
+### Recalculate scores & ranks
+
+Two convenience management commands are available:
+
+```bash
+docker compose exec api python manage.py recalculate_scores
+docker compose exec api python manage.py recalculate_ranks
+```
+
+Recommended order (after importing data / editing completed courses):
+
+```bash
+docker compose exec api python manage.py recalculate_scores
+docker compose exec api python manage.py recalculate_ranks
+```
+
 Logs for each service:
 
 ```bash
