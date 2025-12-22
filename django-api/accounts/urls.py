@@ -21,7 +21,10 @@ from accounts.views import (
     getCompletedCourseScores,
     send_test_email, 
     request_password_reset, 
-    reset_password_confirm
+    reset_password_confirm,
+    license_status,
+    request_license,
+    redeem_license,
 )
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -49,4 +52,7 @@ urlpatterns = [
     path('email/test/', send_test_email, name='send_test_email'),
     path('password-reset/', request_password_reset, name='password_reset'),
     path('password-reset/confirm/', reset_password_confirm, name='password_reset_confirm'),
+    path('license/', license_status, name='license_status'),
+    path('license/request/', request_license, name='request_license'),
+    path('license/redeem/', redeem_license, name='redeem_license'),
 ]

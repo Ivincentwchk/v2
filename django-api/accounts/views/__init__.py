@@ -22,6 +22,7 @@ from .auth import (
     request_password_reset,
     reset_password_confirm,
 )
+from .license import license_status, request_license, redeem_license
 
 __all__ = [
     "me",
@@ -46,4 +47,7 @@ __all__ = [
     "send_test_email",
     "request_password_reset",
     "reset_password_confirm",
+    "license_status",
+    "request_license",
+    "redeem_license",
 ]

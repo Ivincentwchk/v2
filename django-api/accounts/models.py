@@ -181,3 +181,21 @@ class PasswordResetToken(models.Model):
     def __str__(self):
         return f"Reset token for {self.user.user_name} (used={self.used})"
 
+
+class LicenseKey(models.Model):
+    code = models.CharField(max_length=64, unique=True)
+    email = models.EmailField()
+    issued_to = models.ForeignKey(User, null=True, blank=True, related_name='issued_licenses', on_delete=models.SET_NULL)
+    redeemed_by = models.ForeignKey(User, null=True, blank=True, related_name='redeemed_licenses', on_delete=models.SET_NULL)
+    redeemed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['code']),
+            models.Index(fields=['redeemed_by']),
+        ]
+
+    def __str__(self):
+        return f"License {self.code} (redeemed={self.redeemed_by is not None})"
+
