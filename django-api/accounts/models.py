@@ -182,6 +182,32 @@ class PasswordResetToken(models.Model):
         return f"Reset token for {self.user.user_name} (used={self.used})"
 
 
+class UserCertificate(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='certificates')
+    subject = models.ForeignKey(Subject, null=True, blank=True, on_delete=models.CASCADE, related_name='user_certificates')
+    name_en = models.CharField(max_length=150, blank=True, default="")
+    name_cn = models.CharField(max_length=150, blank=True, default="")
+    subject_en = models.CharField(max_length=255, blank=True, default="")
+    subject_cn = models.CharField(max_length=255, blank=True, default="")
+    course_titles = models.JSONField(default=list, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    first_downloaded_at = models.DateTimeField(null=True, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'subject'],
+                name='unique_user_subject_certificate',
+                condition=models.Q(subject__isnull=False),
+            )
+        ]
+
+    def __str__(self):
+        subject_name = self.subject.SubjectName if self.subject else "N/A"
+        return f"Certificate for {self.user.user_name} - {subject_name}"
+
+
 class LicenseKey(models.Model):
     code = models.CharField(max_length=64, unique=True)
     email = models.EmailField()

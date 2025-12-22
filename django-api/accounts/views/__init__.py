@@ -23,6 +23,7 @@ from .auth import (
     reset_password_confirm,
 )
 from .license import license_status, request_license, redeem_license
+from .cert import certificate_status, certificate_download
 
 __all__ = [
     "me",
@@ -50,4 +51,6 @@ __all__ = [
     "license_status",
     "request_license",
     "redeem_license",
+    "certificate_status",
+    "certificate_download",
 ]

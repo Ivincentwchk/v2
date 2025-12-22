@@ -25,6 +25,8 @@ from accounts.views import (
     license_status,
     request_license,
     redeem_license,
+    certificate_status,
+    certificate_download,
 )
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -55,4 +57,6 @@ urlpatterns = [
     path('license/', license_status, name='license_status'),
     path('license/request/', request_license, name='request_license'),
     path('license/redeem/', redeem_license, name='redeem_license'),
+    path('cert/status/', certificate_status, name='certificate_status'),
+    path('cert/download/', certificate_download, name='certificate_download'),
 ]
